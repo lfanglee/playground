@@ -37,34 +37,45 @@ class MyPromise {
     }
 
     then(onFulfilled, onRejected) {
-        const promise = new myPromise((resolve, reject) => {
-            if (this.state === FULFILLED) {
+        const resolvePromise = (res, resolve, reject) => {
+            if (res instanceof MyPromise) {
+                res.then(res => {
+                    resolvePromise(res, resolve, reject);
+                }, err => {
+                    reject(err);
+                });
+            } else {
+                resolve(res);
+            }
+        }
+        const promise = new MyPromise((resolve, reject) => {
+            if (this.state === FULFILLED && onFulfilled) {
                 try {
                     const res = onFulfilled(this.value);
-                    this.resolvePromise(res, resolve, reject);
+                    resolvePromise(res, resolve, reject);
                 } catch (reason) {
                     reject(reason);
                 }
-            } else if (this.state === REJECTED) {
+            } else if (this.state === REJECTED && onRejected) {
                 try {
                     const res = onRejected(this.reason);
-                    this.resolvePromise(res, resolve, reject);
+                    resolvePromise(res, resolve, reject);
                 } catch (reason) {
                     reject(reason);
                 }
             } else if (this.state === PENDING) {
-                this.onFulfilledCallbacks.push(() => {
+                onFulfilled && this.onFulfilledCallbacks.push(() => {
                     try {
                         const res = onFulfilled(this.value);
-                        this.resolvePromise(res, resolve, reject);
+                        resolvePromise(res, resolve, reject);
                     } catch (reason) {
                         reject(reason);
                     }
                 });
-                this.onRejectedCallbacks.push(() => {
+                onRejected && this.onRejectedCallbacks.push(() => {
                     try {
                         const res = onRejected(this.reason);
-                        this.resolvePromise(res, resolve, reject);
+                        resolvePromise(res, resolve, reject);
                     } catch (reason) {
                         reject(reason);
                     }
@@ -75,20 +86,50 @@ class MyPromise {
         return promise;
     }
 
-    resolvePromise(res, resolve, reject) {
-        if (res instanceof myPromise) {
-            res.then(res => {
-                if (res instanceof myPromise) {
-                    this.resolvePromise(res, resolve, reject);
-                } else {
-                    resolve(res);
-                }
-            }, err => {
-                reject(err);
-            });
+    catch(onRejected) {
+        this.then(null, onRejected);
+    }
+
+    finally(onDone) {
+        return this.then(value => MyPromise.resolve(onDone()).then(() => value), reason => MyPromise.resolve(onDone()).then(() => {throw reason; }));
+    }
+
+    static resolve(value) {
+        if (value instanceof MyPromise) {
+            return value;
         } else {
-            resolve(res);
+            return new MyPromise((resolve) => resolve(value));
         }
+    }
+
+    static reject(reason) {
+        return new MyPromise((resolve) => reject(reason));
+    }
+
+    static all(promiseList) {
+        return new MyPromise((resolve, reject) => {
+            const values = [];
+            let count = 0;
+            promiseList.forEach((promise, index) => {
+                this.resolve(promise).then(value => {
+                    values[index] = value;
+                    count++;
+                    if (count === promiseList.length) {
+                        resolve(values);
+                    }
+                }, err => reject(err));
+            });
+        });
+    }
+
+    static race(promiseList) {
+        return new MyPromise((resolve, reject) => {
+            promiseList.forEach(promise => {
+                this.resolve(promise).then(value => {
+                    resolve(value);
+                }, err => reject(err));
+            })
+        }));
     }
 }
 
