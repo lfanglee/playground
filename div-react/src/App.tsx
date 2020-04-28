@@ -1,12 +1,16 @@
+import React from './react';
+
 const Comp = () => {
     return <div className="module"><span>1. </span>hello, world</div>;
 };
 
-class App extends React.Component {
+export default class App extends React.Component<{}, {
+    title: string
+}> {
     constructor(props) {
         super(props);
         this.state = {
-            title: 'hello, world'
+            title: 'hello, world!'
         };
     }
 
@@ -27,10 +31,8 @@ class App extends React.Component {
       return <div className="app">
           {this.state.title}
           <Comp />
+          <div>footer</div>
       </div>
     }
-  }
-
-React.render(<App />, document.getElementById('app'));
-
+}
 
