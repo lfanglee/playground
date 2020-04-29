@@ -1,24 +1,16 @@
-/*
-    Element
-    {
-    type: 'div',
-    props: {
-        className: 'module',
-        children: <Array<Element> | string>[
-            {
-                type: 'span',
-                props: {
-                    children: 'hello, wolrd'
-                }
-            }
-        ]
-    }
-    }
-
-    */    
+  
 interface Element {
-    type: ElementType,
+    type: ElementType;
     props: ElementProps;
+}
+
+interface Instance {
+    element: Element;
+    dom: HTMLElement | Text;
+    childrenInstance?: Instance;
+    childrenInstances?: Array<Instance>;
+    publicInstance?: Component;
+    fn?: FC;
 }
 
 interface FC<T = {
@@ -53,22 +45,29 @@ const createElement = function (
 };
 
 // 将createElement函数产生的dom树对象实例化成组件实例
-const instantiate = function (element: Element) {
+const instantiate = function (element: Element): Instance {
     const { type, props = {} } = element;
     // 原生dom元素
-    if (typeof type === 'string') {
+    const isDomElement = (type: ElementType): type is string => {
+        return typeof type === 'string';
+    };
+    const isClassComponent = (type: ElementType): type is Component => {
+        return (type as Component).prototype && type.prototype.isReactComponent;
+    };
+    if (isDomElement(type)) {
         const isTextElement = type === 'TEXT_ELEMENT';
         const dom = isTextElement ? document.createTextNode(props.nodeValue) : document.createElement(type);
         const children = props.children || [];
-        const childrenInstance = children.map(instantiate);
-        childrenInstance.forEach(childInstance => dom.appendChild(childInstance.dom));
+        const childrenInstances = children.map(instantiate);
+        updateDomProperties(dom, [], element.props);
+        childrenInstances.forEach(childInstance => dom.appendChild(childInstance.dom));
 
         return {
             element,
             dom,
-            childrenInstance
+            childrenInstances
         };
-    } else if (type instanceof Component) {
+    } else if (isClassComponent(type)) {
         const componentInstance = new type<typeof props>(props);
         const renderElement = componentInstance.render();
         const renderInstance = instantiate(renderElement);
@@ -86,33 +85,87 @@ const instantiate = function (element: Element) {
         return {
             element,
             dom: renderInstance.dom,
-            childrenInstance: renderInstance
+            childrenInstance: renderInstance,
+            fn: type
         };
     }
 };
 
-const reconcile = function (parentDom, instance, element) {
+const updateDomProperties = function (dom: HTMLElement | Text, prevProps: ElementProps, nextProps: ElementProps): void {
+    const isEvent = (name: string) => name.startsWith("on");
+    const isAttribute = (name: string) => !isEvent(name) && name != "children";
+    // Remove event listeners
+    Object.keys(prevProps).filter(isEvent).forEach(name => {
+        const eventType = name.toLowerCase().substring(2);
+        dom.removeEventListener(eventType, prevProps[name]);
+    });
+  
+    // Remove attributes
+    Object.keys(prevProps).filter(isAttribute).forEach(name => {
+        dom[name] = null;
+    });
+  
+      // Set attributes
+    Object.keys(nextProps).filter(isAttribute).forEach(name => {
+        dom[name] = nextProps[name];
+    });
+  
+    // Add event listeners
+    Object.keys(nextProps).filter(isEvent).forEach(name => {
+        const eventType = name.toLowerCase().substring(2);
+        dom.addEventListener(eventType, nextProps[name]);
+    });
+};
+
+const lifeCycleExecutor = function (instance: Instance, lifeCycleMethodName: string): void {
+    if (instance.publicInstance) {
+        instance.publicInstance[lifeCycleMethodName]
+            && instance.publicInstance[lifeCycleMethodName]();
+    }
+    if (instance.childrenInstances) {
+        instance.childrenInstances.forEach(childInstance => {
+            lifeCycleExecutor(childInstance, lifeCycleMethodName);
+        });
+    }
+    if (instance.childrenInstance) {
+        lifeCycleExecutor(instance.childrenInstance, lifeCycleMethodName);
+    }
+}
+
+const reconcile = function (parentDom: HTMLElement, instance: Instance, element: Element): Instance {
     // 新增instance
     if (!instance) {
         const newInstance = instantiate(element);
-        newInstance.publicInstance
-            & newInstance.publicInstance.componentWillMount
-            && newInstance.publicInstance.componentWillMount();
+        lifeCycleExecutor(newInstance, 'componentWillMount');
         parentDom.appendChild(newInstance.dom);
-        newInstance.publicInstance
-            & newInstance.publicInstance.componentDidMount
-            && newInstance.publicInstance.componentDidMount();
+        lifeCycleExecutor(newInstance, 'componentDidMount');
         return newInstance;
+    } else if (!element) {
+        if (instance.publicInstance) {
+            instance.publicInstance.componentWillUnmount
+                && instance.publicInstance.componentWillUnmount();
+        }
+        parentDom.removeChild(instance.dom);
+        return null;
     } else if (instance.element.type !== element.type) {
         const newInstance = instantiate(element);
-        // componentDidMount
-        newInstance.publicInstance
-            && newInstance.publicInstance.componentDidMount
-            && newInstance.publicInstance.componentDidMount();
+        if (newInstance.publicInstance) {
+            newInstance.publicInstance.componentDidMount
+                && newInstance.publicInstance.componentDidMount();
+        }
         parentDom.replaceChild(newInstance.dom, instance.dom);
         return newInstance;
     }  else if (typeof element.type === 'string') {
-        
+        const {dom, childrenInstances} = instance;
+        const { children: childrenElements = [] } = element.props;
+        const count = Math.max(childrenElements.length, childrenInstances.length);
+        const newChildrenInstances = [];
+        updateDomProperties(dom, instance.element.props, element.props);
+        for (let i = 0; i < count; i++) {
+            newChildrenInstances.push(reconcile(dom as HTMLElement, childrenInstances[i], childrenElements[i]));
+        }
+        instance.childrenInstances = newChildrenInstances.filter(childInstance => childInstance);
+        instance.element = element;
         return instance;
     } else {
         if (instance.publicInstance
@@ -121,11 +174,11 @@ const reconcile = function (parentDom, instance, element) {
                 return;
             }
         }
-        instance.publicInstance
-            && instance.publicInstance.componentWillUpdate
-            && instance.publicInstance.componentWillUpdate();
-        
-        let newChildElement;
+        if (instance.publicInstance) {
+            instance.publicInstance.componentWillUpdate
+                && instance.publicInstance.componentWillUpdate();
+        }
+        let newChildElement: Element;
         if (instance.publicInstance) { // 类组件
             instance.publicInstance.props = element.props;
             newChildElement = instance.publicInstance.render();
@@ -133,27 +186,29 @@ const reconcile = function (parentDom, instance, element) {
             newChildElement = instance.fn(element.props);
         }
         
-        const oldChildInstance = instance.childInstance;
+        const oldChildInstance = instance.childrenInstance;
         const newChildInstance = reconcile(parentDom, oldChildInstance, newChildElement);
         // componentDidUpdate
-        instance.publicInstance
-            && instance.publicInstance.componentDidUpdate
-            && instance.publicInstance.componentDidUpdate();
+        if (instance.publicInstance) {
+            instance.publicInstance.componentDidUpdate
+                && instance.publicInstance.componentDidUpdate();
+        }
         instance.dom = newChildInstance.dom;
-        instance.childInstance = newChildInstance;
+        instance.childrenInstance = newChildInstance;
         instance.element = element;
         return instance;
     }
 };
 
-let rootInstance = null;
-const render = function (element, parentDom) {
+let rootInstance: Instance = null;
+const render = function (element: Element, parentDom: HTMLElement) {
     const previousInstance = rootInstance;
     const nextInstance = reconcile(parentDom, previousInstance, element);
     rootInstance = nextInstance;
 };
 
-class Component<P = {}, S = {}> {
+abstract class Component<P = {}, S = {}> {
+    isReactComponent: boolean;
     public props: P;
     public state: S;
     protected __internalInstance: any;
@@ -167,7 +222,17 @@ class Component<P = {}, S = {}> {
         const element = this.__internalInstance.element;
         reconcile(parentDom, this.__internalInstance, element);
     }
+
+    componentWillMount(): void {}
+    componentDidMount(): void {}
+    shouldcomponentUpdate(): boolean {
+        return true;
+    }
+    componentWillUpdate(): void {}
+    componentDidUpdate(): void {}
+    componentWillUnmount(): void {}
 }
+Component.prototype.isReactComponent = true;
 
 export default {
     createElement,
