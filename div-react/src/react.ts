@@ -7,9 +7,12 @@ interface Element {
 interface Instance {
     element: Element;
     dom: HTMLElement | Text;
+    // this class component and function component will have a childrenInstance property
     childrenInstance?: Instance;
+    // the native dom instance will have a childrenInstances property and a publicInstance property
     childrenInstances?: Array<Instance>;
     publicInstance?: Component;
+    // this function component will have a fn property
     fn?: FC;
 }
 
@@ -59,7 +62,7 @@ const instantiate = function (element: Element): Instance {
         const dom = isTextElement ? document.createTextNode(props.nodeValue) : document.createElement(type);
         const children = props.children || [];
         const childrenInstances = children.map(instantiate);
-        updateDomProperties(dom, [], element.props);
+        updateDomProperties(dom, {}, element.props);
         childrenInstances.forEach(childInstance => dom.appendChild(childInstance.dom));
 
         return {
@@ -117,7 +120,9 @@ const updateDomProperties = function (dom: HTMLElement | Text, prevProps: Elemen
     });
 };
 
-const lifeCycleExecutor = function (instance: Instance, lifeCycleMethodName: string): void {
+type LifeCycleMethodName = 'componentWillMount' | 'componentDidMount' | 'componentWillUpdate' | 'componentDidUpdate' | 'componentWillUnmount' | 'shouldcomponentUpdate';
+
+const lifeCycleExecutor = function (instance: Instance, lifeCycleMethodName: LifeCycleMethodName): void {
     if (instance.publicInstance) {
         instance.publicInstance[lifeCycleMethodName]
             && instance.publicInstance[lifeCycleMethodName]();
@@ -133,27 +138,23 @@ const lifeCycleExecutor = function (instance: Instance, lifeCycleMethodName: str
 }
 
 const reconcile = function (parentDom: HTMLElement, instance: Instance, element: Element): Instance {
-    // 新增instance
+    // add instance
     if (!instance) {
         const newInstance = instantiate(element);
         lifeCycleExecutor(newInstance, 'componentWillMount');
         parentDom.appendChild(newInstance.dom);
         lifeCycleExecutor(newInstance, 'componentDidMount');
         return newInstance;
-    } else if (!element) {
-        if (instance.publicInstance) {
-            instance.publicInstance.componentWillUnmount
-                && instance.publicInstance.componentWillUnmount();
-        }
+    } else if (!element) { // delete instance
+        lifeCycleExecutor(instance, 'componentWillUnmount');
         parentDom.removeChild(instance.dom);
         return null;
-    } else if (instance.element.type !== element.type) {
+    } else if (instance.element.type !== element.type) { // instance node type changed
         const newInstance = instantiate(element);
-        if (newInstance.publicInstance) {
-            newInstance.publicInstance.componentDidMount
-                && newInstance.publicInstance.componentDidMount();
-        }
+        lifeCycleExecutor(instance, 'componentWillUnmount');
+        lifeCycleExecutor(newInstance, 'componentWillMount');
         parentDom.replaceChild(newInstance.dom, instance.dom);
+        lifeCycleExecutor(newInstance, 'componentDidMount');
         return newInstance;
     }  else if (typeof element.type === 'string') {
         const {dom, childrenInstances} = instance;
@@ -174,10 +175,7 @@ const reconcile = function (parentDom: HTMLElement, instance: Instance, element:
                 return;
             }
         }
-        if (instance.publicInstance) {
-            instance.publicInstance.componentWillUpdate
-                && instance.publicInstance.componentWillUpdate();
-        }
+        lifeCycleExecutor(instance, 'componentWillUpdate');
         let newChildElement: Element;
         if (instance.publicInstance) { // 类组件
             instance.publicInstance.props = element.props;
@@ -189,10 +187,7 @@ const reconcile = function (parentDom: HTMLElement, instance: Instance, element:
         const oldChildInstance = instance.childrenInstance;
         const newChildInstance = reconcile(parentDom, oldChildInstance, newChildElement);
         // componentDidUpdate
-        if (instance.publicInstance) {
-            instance.publicInstance.componentDidUpdate
-                && instance.publicInstance.componentDidUpdate();
-        }
+        lifeCycleExecutor(instance, 'componentDidUpdate');
         instance.dom = newChildInstance.dom;
         instance.childrenInstance = newChildInstance;
         instance.element = element;

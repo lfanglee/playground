@@ -22,6 +22,14 @@ class Counter extends React.Component<{
         console.log('Counter mounted');
         document.getElementById('valueDisplayed').style.textAlign = 'center';
     }
+    
+    componentWillUpdate() {
+        console.log('Counter will update');
+    }
+
+    componentDidUpdate() {
+        console.log('Counter did update');
+    }
 
     handleDecreaseClick() {
         this.setState({
@@ -38,9 +46,11 @@ class Counter extends React.Component<{
     render() {
         return (
             <div className="c-comp-counter">
+                <div>{this.state.value % 2 ? 'isOdd' : 'isEven'}</div>
                 <span className="decrease" onClick={this.handleDecreaseClick}>-</span>
                 <input id="valueDisplayed" type="number" value={this.state.value} readonly />
                 <span className="plus" onClick={this.handlePlusClick}>+</span>
+                {this.state.value % 2 ? <Comp /> : null}
             </div>
         )
     }
@@ -69,10 +79,17 @@ export default class App extends React.Component<{}, {
         console.log('App did mount');
     }
 
+    componentWillUpdate() {
+        console.log('App will update');
+    }
+
+    componentDidUpdate() {
+        console.log('App did update');
+    }
+
     render() {
       return <div className="app">
           {this.state.title}
-          <Comp />
 
           <Counter />
           <div>footer</div>
