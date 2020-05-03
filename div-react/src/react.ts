@@ -22,7 +22,7 @@ interface FC<T = {
     (props: T): Element;
 }
 
-type ElementType = string | Component | FC;
+type ElementType = string | ComponentClass | FC;
 
 interface ElementProps {
     className?: string;
@@ -54,8 +54,8 @@ const instantiate = function (element: Element): Instance {
     const isDomElement = (type: ElementType): type is string => {
         return typeof type === 'string';
     };
-    const isClassComponent = (type: ElementType): type is Component => {
-        return (type as Component).prototype && type.prototype.isReactComponent;
+    const isClassComponent = (type: ElementType): type is ComponentClass => {
+        return (type as ComponentClass).prototype && (type as ComponentClass).prototype.isReactComponent;
     };
     if (isDomElement(type)) {
         const isTextElement = type === 'TEXT_ELEMENT';
@@ -71,7 +71,7 @@ const instantiate = function (element: Element): Instance {
             childrenInstances
         };
     } else if (isClassComponent(type)) {
-        const componentInstance = new type<typeof props>(props);
+        const componentInstance = new type(props);
         const renderElement = componentInstance.render();
         const renderInstance = instantiate(renderElement);
         const instance = {
@@ -202,12 +202,27 @@ const render = function (element: Element, parentDom: HTMLElement) {
     rootInstance = nextInstance;
 };
 
-abstract class Component<P = {}, S = {}> {
+interface ComponentClass<P = {}> {
+    new (props?: P): Component<P>;
+}
+
+interface Component<P = {}, S = {}> {
     isReactComponent: boolean;
-    public props: P;
-    public state: S;
-    protected __internalInstance: any;
-    constructor(props: P) {
+    props: P;
+    state: S;
+    __internalInstance: any;
+
+    componentWillMount(): void;
+    componentDidMount(): void;
+    shouldcomponentUpdate(): boolean;
+    componentWillUpdate(): void;
+    componentDidUpdate(): void;
+    componentWillUnmount(): void;
+    render(): Element;
+}
+
+abstract class Component<P = {}, S = {}> {
+    constructor(props?: P) {
         this.props = props;
     }
 
@@ -217,15 +232,6 @@ abstract class Component<P = {}, S = {}> {
         const element = this.__internalInstance.element;
         reconcile(parentDom, this.__internalInstance, element);
     }
-
-    componentWillMount(): void {}
-    componentDidMount(): void {}
-    shouldcomponentUpdate(): boolean {
-        return true;
-    }
-    componentWillUpdate(): void {}
-    componentDidUpdate(): void {}
-    componentWillUnmount(): void {}
 }
 Component.prototype.isReactComponent = true;
 
